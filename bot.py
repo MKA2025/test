@@ -1,5 +1,6 @@
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import (
     Updater,
     CommandHandler,
@@ -9,16 +10,25 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
+from orpheus.core import Orpheus, DownloadTypeEnum, MediaIdentification, QualityEnum
+from orpheus.music_downloader import beauty_format_seconds
+
+# Logging setup
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Constants
 TOKEN = os.environ.get("BOT_TOKEN")
 OWNER_ID = int(os.environ.get("OWNER_ID"))
 
 # States for ConversationHandler
-CHOOSING, TYPING_REPLY, CHOOSING_QUALITY = range(3)
+CHOOSING, TYPING_REPLY, CHOOSING_QUALITY, ADDING_USER = range(4)
 
 # Store authorized users (you might want to use a database in production)
 authorized_users = {OWNER_ID}  # Initialize with owner ID
+
+# OrpheusDL instance
+orpheus = Orpheus()
 
 # Basic command handlers
 def start(update: Update, context: CallbackContext) -> None:
@@ -46,6 +56,7 @@ def help_command(update: Update, context: CallbackContext) -> None:
         "/help - Show this help message\n"
         "/auth - Authenticate with music services\n"
         "/set_quality - Set download quality\n"
+        "/add_user - Add a new authorized user (owner only)\n"
         "\nJust send me a music link to download!"
     )
 
@@ -92,9 +103,19 @@ def received_information(update: Update, context: CallbackContext) -> int:
     service = context.user_data['auth_service']
     email, password = credentials
     
-    # Here you would handle the actual authentication with the service
-    # For now, just acknowledge receipt
-    update.message.reply_text(f"Received credentials for {service}. Processing...")
+    try:
+        # Here you would use the OrpheusDL methods to authenticate with the service
+        if service == 'qobuz':
+            orpheus.load_module('qobuz').login(email, password)
+        elif service == 'tidal':
+            orpheus.load_module('tidal').login(email, password)
+        elif service == 'deezer':
+            orpheus.load_module('deezer').login(email, password)
+        
+        update.message.reply_text(f"Successfully authenticated with {service.capitalize()}.")
+    except Exception as e:
+        logger.error(f"Error during {service} authentication: {str(e)}")
+        update.message.reply_text(f"An error occurred while authenticating with {service.capitalize()}: {str(e)}")
     
     # Clear sensitive data
     del context.user_data['auth_service']
@@ -107,12 +128,16 @@ def set_quality(update: Update, context: CallbackContext) -> int:
     
     keyboard = [
         [
-            InlineKeyboardButton("HIFI", callback_data='quality_hifi'),
-            InlineKeyboardButton("Lossless", callback_data='quality_lossless'),
+            InlineKeyboardButton("HIFI", callback_data='quality_HIFI'),
+            InlineKeyboardButton("Lossless", callback_data='quality_LOSSLESS'),
         ],
         [
-            InlineKeyboardButton("High", callback_data='quality_high'),
-            InlineKeyboardButton("Medium", callback_data='quality_medium'),
+            InlineKeyboardButton("High", callback_data='quality_HIGH'),
+            InlineKeyboardButton("Medium", callback_data='quality_MEDIUM'),
+        ],
+        [
+            InlineKeyboardButton("Low", callback_data='quality_LOW'),
+            InlineKeyboardButton("Minimum", callback_data='quality_MINIMUM'),
         ],
         [
             InlineKeyboardButton("Cancel", callback_data='quality_cancel'),
@@ -132,12 +157,16 @@ def quality_callback(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
     
     quality = query.data.split('_')[1]
-    # Here you would actually set the quality in your config
-    query.edit_message_text(f"Download quality set to: {quality}")
+    context.user_data['quality'] = QualityEnum[quality]
+    query.edit_message_text(f"Download quality has been set to {quality}.")
     return ConversationHandler.END
 
 def add_user(update: Update, context: CallbackContext) -> None:
     """Add a new authorized user (owner only)."""
+    if update.effective_user.id != OWNER_ID:
+        update.message.reply_text("Only the owner can add new users.")
+        return
+
     if len(context.args) != 1:
         update.message.reply_text("Please provide a user ID to add.")
         return
@@ -150,50 +179,4 @@ def add_user(update: Update, context: CallbackContext) -> None:
             authorized_users.add(new_user_id)
             update.message.reply_text(f"User {new_user_id} has been added to authorized users.")
     except ValueError:
-        update.message.reply_text("Invalid user ID. Please provide a valid integer ID.")
-
-def handle_link(update: Update, context: CallbackContext) -> None:
-    """Handle received music links."""
-    if update.effective_user.id not in authorized_users:
-        return
-    
-    link = update.message.text
-    # Here you would implement the actual download logic
-    update.message.reply_text(f"Processing link: {link}\nDownload will start soon...")
-
-def cancel(update: Update, context: CallbackContext) -> int:
-    """Cancel current conversation."""
-    update.message.reply_text('Operation cancelled.')
-    return ConversationHandler.END
-
-def main() -> None:
-    updater = Updater(TOKEN)
-    dispatcher = updater.dispatcher
-
-    # Add handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    
-    # Auth conversation handler
-    auth_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('auth', auth)],
-        states={
-            CHOOSING: [CallbackQueryHandler(auth_callback, pattern='^auth_')],
-            TYPING_REPLY: [MessageHandler(Filters.text & ~Filters.command, received_information)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    dispatcher.add_handler(auth_conv_handler)
-
-    # Quality setting conversation handler
-    quality_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('set_quality', set_quality)],
-        states={
-            CHOOSING_QUALITY: [CallbackQueryHandler(quality_callback, pattern='^quality_')],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    dispatcher.add_handler(quality_conv_handler)
-
-    # Add user handler (only for owner)
-    dispatcher.add_handler(CommandHandler("add_user
+        update.message.reply_text
