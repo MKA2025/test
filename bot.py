@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 from orpheus.core import Orpheus, DownloadTypeEnum, MediaIdentification, QualityEnum
 from orpheus.music_downloader import beauty_format_seconds
+from utils.models import TrackInfo, AlbumInfo, codec_data, CodecEnum
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -30,7 +31,6 @@ authorized_users = {OWNER_ID}  # Initialize with owner ID
 # OrpheusDL instance
 orpheus = Orpheus()
 
-# Basic command handlers
 def start(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /start is issued."""
     user = update.effective_user
@@ -104,7 +104,6 @@ def received_information(update: Update, context: CallbackContext) -> int:
     email, password = credentials
     
     try:
-        # Here you would use the OrpheusDL methods to authenticate with the service
         if service == 'qobuz':
             orpheus.load_module('qobuz').login(email, password)
         elif service == 'tidal':
@@ -179,4 +178,6 @@ def add_user(update: Update, context: CallbackContext) -> None:
             authorized_users.add(new_user_id)
             update.message.reply_text(f"User {new_user_id} has been added to authorized users.")
     except ValueError:
-        update.message.reply_text
+        update.message.reply_text("Invalid user ID. Please provide a valid integer ID.")
+
+def send_track_metadata(update: Update, context: CallbackContext, track_info
