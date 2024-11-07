@@ -1,5 +1,7 @@
 import os
 import logging
+import tempfile
+import zipfile
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import (
     Updater,
@@ -180,4 +182,7 @@ def add_user(update: Update, context: CallbackContext) -> None:
     except ValueError:
         update.message.reply_text("Invalid user ID. Please provide a valid integer ID.")
 
-def send_track_metadata(update: Update, context: CallbackContext, track_info
+def send_track_metadata(update: Update, context: CallbackContext, track_info: TrackInfo, reply_markup=None):
+    """Send track metadata as a formatted message."""
+    message = (
+        f"
